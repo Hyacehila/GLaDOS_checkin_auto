@@ -3,29 +3,45 @@ name: 开始每日签到
 on:
   workflow_dispatch:
   schedule:
-    # UTC 1点30分(北京时间 9点30分)
+    # 主签到：北京时间 9点30分
     - cron: 30 1 * * *
+    # 备用签到：北京时间 15点30分，接口瞬时异常时自动补签
+    - cron: 30 7 * * *
   # 标星时触发工作流程
   watch:
     types: [started]
 
+permissions:
+  contents: write
+
+concurrency:
+  group: glados-daily-checkin
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python 3.9
-        uses: actions/setup-python@v3
+      - uses: actions/checkout@v7
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v6
         with:
-          python-version: 3.9
+          python-version: '3.13'
       - name: Install requirements
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
+        run: python -m pip install --disable-pip-version-check "requests==2.32.5"
       - name: Run checkin
-        run: |
-          python3 glados.py
+        run: python glados.py
         env: 
           GLADOS_COOKIE: "${{ secrets.GLADOS_COOKIE }}"
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-      - uses: MrPhil/keepalive-workflow-version2@releases/v1
+      - name: Keep scheduled workflow active
+        if: success() && github.event_name == 'schedule' && github.event.schedule == '30 1 * * *'
+        run: |
+          if [ "$(date -u +%d)" != "01" ]; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "chore: keep scheduled workflow active"
+          git push
